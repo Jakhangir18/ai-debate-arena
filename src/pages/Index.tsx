@@ -3,7 +3,9 @@ import AgentProfile from "@/components/AgentProfile";
 import ChatBubble from "@/components/ChatBubble";
 import ConclusionCard from "@/components/ConclusionCard";
 import ObserverDeck from "@/components/ObserverDeck";
-import { getMockDebateMessages, getMockConclusion, type DebateMessage } from "@/lib/mockDebate";
+import { type DebateMessage } from "@/lib/mockDebate";
+import { callDebateAPI, type Message, type Speaker } from "@/lib/debateAPI";
+import { toast } from "sonner";
 
 const Index = () => {
   const [topic, setTopic] = useState("");
@@ -30,32 +32,95 @@ const Index = () => {
     setIsDebating(true);
     debateRef.current = true;
 
-    // TODO: Inject real LLM API call here
-    // Replace getMockDebateMessages with streaming API calls to your backend
-    const mockMessages = getMockDebateMessages(topic);
+    try {
+      // Debate history for API calls
+      const apiMessages: Message[] = [];
+      
+      // Define the order: A -> B -> A -> B (4 turns total)
+      const turnOrder: Array<{ speaker: Speaker; agent: "a" | "b"; name: string }> = [
+        { speaker: 'Agent A', agent: 'a', name: 'The YC Partner' },
+        { speaker: 'Agent B', agent: 'b', name: 'The Senior Engineer' },
+        { speaker: 'Agent A', agent: 'a', name: 'The YC Partner' },
+        { speaker: 'Agent B', agent: 'b', name: 'The Senior Engineer' },
+      ];
 
-    for (const msg of mockMessages) {
-      if (!debateRef.current) break;
+      for (const turn of turnOrder) {
+        if (!debateRef.current) break;
 
-      setTypingAgent(msg.agent);
-      await new Promise((r) => setTimeout(r, 2000));
+        // Show typing indicator
+        setTypingAgent(turn.agent);
 
-      if (!debateRef.current) break;
+        try {
+          // Call API for current speaker
+          const response = await callDebateAPI(apiMessages, turn.speaker, topic);
+          
+          if (!debateRef.current) break;
+          
+          // Hide typing indicator
+          setTypingAgent(null);
+
+          // Create the message object
+          const newMessage: DebateMessage = {
+            id: `${turn.agent}-${Date.now()}`,
+            agent: turn.agent,
+            name: turn.name,
+            message: response,
+            timestamp: new Date().toLocaleTimeString(),
+          };
+
+          // Add to UI
+          setMessages((prev) => [...prev, newMessage]);
+
+          // Add to API history
+          apiMessages.push({
+            role: 'assistant',
+            content: response,
+            name: turn.speaker,
+          });
+
+        } catch (error) {
+          console.error(`Error getting response from ${turn.speaker}:`, error);
+          setTypingAgent(null);
+          toast.error(`Failed to get response from ${turn.name}. ${error instanceof Error ? error.message : 'Unknown error'}`);
+          break;
+        }
+      }
+
+    } catch (error) {
+      console.error('Error during debate:', error);
+      toast.error('An error occurred during the debate.');
+    } finally {
+      setIsDebating(false);
       setTypingAgent(null);
-      setMessages((prev) => [...prev, { ...msg, timestamp: new Date().toLocaleTimeString() }]);
+      debateRef.current = false;
     }
-
-    setIsDebating(false);
-    debateRef.current = false;
   }, [topic, isDebating]);
 
-  const forceConclusion = useCallback(() => {
+  const forceConclusion = useCallback(async () => {
     if (messages.length === 0) return;
+    
+    // Stop any ongoing debate
     debateRef.current = false;
     setIsDebating(false);
     setTypingAgent(null);
-    // TODO: Inject real LLM API call here
-    setConclusion(getMockConclusion(topic));
+
+    try {
+      // Build message history from the debate
+      const apiMessages: Message[] = messages.map((msg) => ({
+        role: 'assistant' as const,
+        content: msg.message,
+        name: msg.agent === 'a' ? 'Agent A' : 'Agent B',
+      }));
+
+      // Call API with Judge as the speaker
+      const conclusionText = await callDebateAPI(apiMessages, 'Judge', topic);
+      setConclusion(conclusionText);
+      
+      toast.success('Conclusion generated successfully!');
+    } catch (error) {
+      console.error('Error generating conclusion:', error);
+      toast.error(`Failed to generate conclusion. ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }, [messages, topic]);
 
   return (
