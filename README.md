@@ -1,173 +1,88 @@
-# 🤖 AI Debate Arena
+# AI Debate Arena
 
-Watch two different AI models engage in real-time debates! This application uses **GPT-4o** and **GPT-4o-mini** to create authentic debates between two distinct AI personalities.
+Give it a topic and two OpenAI models argue it out in character: GPT-4o plays an aggressive Y Combinator partner, GPT-4o-mini plays a skeptical senior engineer, they trade four turns, and a GPT-4o judge writes the synthesis.
 
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
-![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)
-![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)
-![OpenAI](https://img.shields.io/badge/OpenAI-412991?style=flat&logo=openai&logoColor=white)
+![The arena with a topic entered and the two agent profiles](docs/media/arena.webp)
 
-## 🎯 Features
+![Agent A's first turn in flight, shown by the typing indicator](docs/media/turn-in-flight.webp)
 
-- **Two Different AI Models**: Agent A uses GPT-4o, Agent B uses GPT-4o-mini
-- **Distinct Personalities**: 
-  - **Agent A (YC Partner)** - Aggressive business perspective (temp: 0.9)
-  - **Agent B (Senior Engineer)** - Technical, pragmatic analysis (temp: 0.7)
-  - **Judge** - Synthesizes both viewpoints into a conclusion
-- **Real-time Debates**: Watch as the AI agents debate in 4 turns
-- **Context-Aware**: Each agent remembers the conversation history
-- **Beautiful UI**: Built with React, Tailwind CSS, and shadcn/ui
+*Screenshots from the running frontend. They were taken without an OpenAI key, so they show the arena and a turn in flight but no model output.*
 
-## 🚀 Quick Start
+## How a debate runs
 
-### Prerequisites
+**Three personas, two models.** `server/index.ts` keeps one system prompt and one model config per speaker:
 
-- **Node.js** 18+ and npm (or use [nvm](https://github.com/nvm-sh/nvm))
-- **OpenAI API Key** with available credits ([Get one here](https://platform.openai.com/api-keys))
+| Speaker | Persona (from the system prompt) | Model | Temperature | Max tokens |
+|---|---|---|---|---|
+| Agent A | "aggressive, visionary Y Combinator Partner", argues business value, scale and market mechanics | `gpt-4o` | 0.9 | 300 |
+| Agent B | "pragmatic, hardcore Senior Staff Engineer", argues feasibility, architecture and edge cases, told to "disagree with the investor's fluff" | `gpt-4o-mini` | 0.7 | 300 |
+| Judge | moderator that merges "the business vision and technical reality" into a structured takeaway | `gpt-4o` | 0.6 | 500 |
 
-### Installation
+Both debaters are told to stay under three sentences per turn, which keeps the exchange fast and pointed. Giving the two sides different models and temperatures is deliberate: the investor is louder and looser, the engineer more measured.
+
+**The turn loop lives in the browser.** `src/pages/Index.tsx` walks a fixed order, A -> B -> A -> B. For each turn it shows that agent's typing indicator, POSTs `{ messages, currentSpeaker, topic }` to `/api/debate`, appends the reply to the chat, and pushes it onto the shared history. A failed turn stops the loop and shows the error as a toast.
+
+**The server is stateless.** Every request carries the whole transcript. The server builds the OpenAI message list as: the speaker's system prompt, then `Debate topic: <topic>` as a user message, then every earlier turn as an `assistant` message tagged with `name: "Agent A"` or `"Agent B"`, so each model sees who said what. It maps OpenAI's 401 and 429 errors to readable messages.
+
+**The judge runs on demand.** After the four turns, "Force Conclusion" sends the transcript with `currentSpeaker: "Judge"` and renders the result in a conclusion card. The notes box under the arena is saved to `localStorage`.
+
+## Run locally
+
+Requires Node.js 18 or later, npm, and an OpenAI API key with credit.
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/Jakhangir18/Project-3.git
-cd Project-3
-
-# 2. Install dependencies
+git clone https://github.com/Jakhangir18/ai-debate-arena.git
+cd ai-debate-arena
 npm install
-
-# 3. Set up environment variables
-cp .env.example .env
-
-# 4. Edit .env and add your OpenAI API key
-# OPENAI_API_KEY=sk-your-key-here
-
-# 5. Start both frontend and backend
+cp .env.example .env     # then set OPENAI_API_KEY in .env
 npm run dev:all
 ```
 
-The app will open at:
-- **Frontend**: http://localhost:8080
-- **Backend API**: http://localhost:3001
+- Frontend (Vite): http://localhost:8080
+- API (Express via `tsx`): http://localhost:3001, health check at `/api/health`
 
-## 📋 Available Scripts
+Vite proxies `/api` to port 3001, so the browser only talks to the frontend origin and the key never leaves the server.
+
+Environment variables (`.env`):
+
+| Name | Required | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | yes | Used by the server for all three speakers |
+| `PORT` | no | API port, default `3001` (update the proxy in `vite.config.ts` if you change it) |
+
+Other scripts:
 
 ```bash
-npm run dev          # Start frontend only (Vite)
-npm run server       # Start backend only (Express API)
-npm run dev:all      # Start both frontend and backend (recommended)
-npm run build        # Build for production
-npm run preview      # Preview production build
-npm run test         # Run tests
-npm run lint         # Run ESLint
+npm run dev       # frontend only
+npm run server    # API only
+npm run build     # production build of the frontend
+npm run test      # Vitest
+npm run lint      # ESLint
 ```
 
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file in the root directory:
-
-```env
-OPENAI_API_KEY=sk-your-api-key-here
-PORT=3001
-```
-
-### AI Model Configuration
-
-The AI models are configured in `server/index.ts`:
-
-- **Agent A**: GPT-4o (temperature: 0.9, max_tokens: 300)
-- **Agent B**: GPT-4o-mini (temperature: 0.7, max_tokens: 300)
-- **Judge**: GPT-4o (temperature: 0.6, max_tokens: 500)
-
-## 📖 How It Works
-
-1. **Enter a Topic**: Type any debate topic (e.g., "Will React exist in 5 years?")
-2. **Start Debate**: Click "Start Debate" to begin
-3. **Watch the Debate**: Agents take turns (A → B → A → B)
-4. **Get Conclusion**: Click "Force Conclusion" for a synthesized summary
-
-## 🏗️ Tech Stack
-
-### Frontend
-- **React 18** - UI library
-- **TypeScript** - Type safety
-- **Vite** - Build tool
-- **Tailwind CSS** - Styling
-- **shadcn/ui** - UI components
-- **React Router** - Routing
-- **Sonner** - Toast notifications
-
-### Backend
-- **Express** - Web server
-- **OpenAI SDK** - AI integration
-- **TypeScript** - Type safety
-- **dotenv** - Environment variables
-- **CORS** - Cross-origin requests
-
-## 📁 Project Structure
+## Project structure
 
 ```
-├── server/
-│   └── index.ts          # Express API server
-├── src/
-│   ├── components/       # React components
-│   │   ├── AgentProfile.tsx
-│   │   ├── ChatBubble.tsx
-│   │   ├── ConclusionCard.tsx
-│   │   └── ui/          # shadcn/ui components
-│   ├── lib/
-│   │   ├── debateAPI.ts # API client
-│   │   ├── mockDebate.ts
-│   │   └── utils.ts
-│   ├── pages/
-│   │   └── Index.tsx    # Main debate arena
-│   └── main.tsx         # App entry point
-├── .env.example          # Environment template
-├── package.json
-└── vite.config.ts
+server/index.ts              Express API: personas, model configs, OpenAI call
+src/pages/Index.tsx          topic input, turn loop, judge call
+src/lib/debateAPI.ts         typed client for POST /api/debate
+src/components/
+  AgentProfile.tsx           persona card with typing indicator
+  ChatBubble.tsx             one debate turn
+  ConclusionCard.tsx         the judge's synthesis
+  ObserverDeck.tsx           notes box and Force Conclusion button
+  ui/                        shadcn/ui primitives
+vite.config.ts               dev server and /api proxy
 ```
 
-## 🐛 Troubleshooting
+## Known gaps
 
-### "OpenAI API key is invalid or missing"
-- Ensure `.env` file exists in project root
-- Verify `OPENAI_API_KEY` is set correctly
-- Restart the server after updating `.env`
+- The judge is asked for markdown, but the conclusion card renders it as plain text.
+- "Force Conclusion" is disabled while turns are running, so the judge only runs after the debate ends or stops on an error.
+- `src/lib/mockDebate.ts` is left over from the UI prototype; only its `DebateMessage` type is still used.
 
-### "Rate limit exceeded" or "Insufficient quota"
-- Check your OpenAI account has available credits
-- Visit [OpenAI Billing](https://platform.openai.com/account/billing) to add credits
+## Credits
 
-### Port already in use
-- Change `PORT` in `.env` to a different port (e.g., 3002)
-- Or kill the process: `lsof -ti:3001 | xargs kill -9` (macOS/Linux)
+The project started from a [Lovable](https://lovable.dev) Vite + React + shadcn/ui template, and the first UI pass (agent cards, chat bubbles, conclusion card, observer deck, with mock debate text) was generated there. The Express API, the persona prompts and per-speaker model settings, the API client and the real turn loop were written on top of it.
 
-### Frontend can't connect to backend
-- Ensure both servers are running (`npm run dev:all`)
-- Check backend is running on port 3001
-- Verify Vite proxy is configured in `vite.config.ts`
-
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to:
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is open source and available under the [MIT License](LICENSE).
-
-## 🙏 Acknowledgments
-
-- Built with [React](https://react.dev/)
-- UI components from [shadcn/ui](https://ui.shadcn.com/)
-- Powered by [OpenAI](https://openai.com/)
-
----
-
-Made with ❤️ for AI enthusiasts
+Stack: React 18, TypeScript, Vite 5, Tailwind CSS, shadcn/ui, Sonner; Express, the OpenAI Node SDK, dotenv, tsx.
